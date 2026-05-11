@@ -1138,9 +1138,7 @@ async function saveToGithub() {
     };
 
     let sha = null;
-    const getRes = await fetch(apiBase + '?ref=main&_=' + Date.now(), {
-      headers: { ...headers, 'Cache-Control': 'no-cache' }
-    });
+    const getRes = await fetch(apiBase + '?ref=main&_=' + Date.now(), { headers });
     if (getRes.ok) {
       const info = await getRes.json();
       sha = info.sha;
@@ -1184,9 +1182,7 @@ async function saveToGithub() {
       const isShaError = (errBody.message || '').includes('does not match') || putRes.status === 409;
       if (isShaError) {
         // Re-fetch latest SHA, retry the PUT
-        const refreshRes = await fetch(apiBase + '?ref=main&_=' + Date.now(), {
-          headers: { ...headers, 'Cache-Control': 'no-cache' }
-        });
+        const refreshRes = await fetch(apiBase + '?ref=main&_=' + Date.now(), { headers });
         if (refreshRes.ok) {
           const refreshInfo = await refreshRes.json();
           body.sha = refreshInfo.sha;
