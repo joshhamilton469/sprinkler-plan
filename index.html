@@ -1138,7 +1138,9 @@ async function saveToGithub() {
     };
 
     let sha = null;
-    const getRes = await fetch(apiBase + '?ref=main', { headers });
+    const getRes = await fetch(apiBase + '?ref=main&_=' + Date.now(), {
+      headers: { ...headers, 'Cache-Control': 'no-cache' }
+    });
     if (getRes.ok) {
       const info = await getRes.json();
       sha = info.sha;
@@ -1175,6 +1177,45 @@ async function saveToGithub() {
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+
+    // SHA conflict: file changed on GitHub since we last fetched it. Re-fetch and retry once.
+    if (putRes.status === 409 || (putRes.status === 422)) {
+      const errBody = await putRes.json().catch(() => ({}));
+      const isShaError = (errBody.message || '').includes('does not match') || putRes.status === 409;
+      if (isShaError) {
+        // Re-fetch latest SHA, retry the PUT
+        const refreshRes = await fetch(apiBase + '?ref=main&_=' + Date.now(), {
+          headers: { ...headers, 'Cache-Control': 'no-cache' }
+        });
+        if (refreshRes.ok) {
+          const refreshInfo = await refreshRes.json();
+          body.sha = refreshInfo.sha;
+          const retryRes = await fetch(apiBase, {
+            method: 'PUT',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          if (retryRes.ok) {
+            const retryResult = await retryRes.json();
+            const commitUrl = retryResult.commit && retryResult.commit.html_url;
+            btn.textContent = '✓ Saved to GitHub';
+            btn.style.background = '#3DB54A';
+            btn.style.borderColor = '#3DB54A';
+            toast(`Pushed commit · live in ~30s`);
+            if (commitUrl) console.log('Commit:', commitUrl);
+            setTimeout(() => {
+              btn.textContent = originalText;
+              btn.style.background = ''; btn.style.borderColor = ''; btn.style.opacity = '';
+              btn.disabled = false;
+            }, 2500);
+            return;
+          }
+          const retryErr = await retryRes.json().catch(() => ({}));
+          throw new Error(retryErr.message || `Retry failed: HTTP ${retryRes.status}`);
+        }
+        throw new Error('Could not refresh file SHA from GitHub.');
+      }
+    }
 
     if (!putRes.ok) {
       const err = await putRes.json().catch(() => ({}));
