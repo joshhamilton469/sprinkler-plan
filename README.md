@@ -8,6 +8,7 @@ Interactive irrigation schematic for the property at 5589 rue Goddard. Built fro
 
 - **`index.html`** — the self-contained interactive map. Click to place heads, edit zones, drag to move, add notes, export PNG/JSON snapshots.
 - **`data/`** — JSON snapshots of the plan over time. Each snapshot captures every head position, zone assignment, note, and on-map annotation. Latest is `data/latest.json`.
+- **`docs/irrigation-reference.xlsx`** — companion maintenance workbook. Four tabs: System Summary (totals, water source, controller, contacts, seasonal schedule), Zone Reference (per-zone breakdown with editable head counts, types, GPM, run times), Head Inventory (one row per head, with status and service date), and Maintenance Log (pre-seeded with seasonal reminders).
 - **`.github/workflows/pages.yml`** — auto-deploys the tool to GitHub Pages on every push to `main`.
 
 ## Using the tool
