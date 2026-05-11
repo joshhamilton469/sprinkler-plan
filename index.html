@@ -883,71 +883,14 @@ document.getElementById('export-json').addEventListener('click', () => {
     heads: state.heads,
     annotations: state.annotations,
   };
-  const jsonText = JSON.stringify(data, null, 2);
-  const fname = `sprinkler-plan-${new Date().toISOString().slice(0,10)}.json`;
-
-  // Build a modal — Safari blocks downloads from sandboxed iframes,
-  // so we offer clipboard copy + manual save instead.
-  const backdrop = document.createElement('div');
-  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
-  const modal = document.createElement('div');
-  modal.style.cssText = 'background:white;border-radius:12px;padding:20px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,0.3);';
-  modal.innerHTML = `
-    <h2 style="font-family:'Instrument Serif',serif;font-size:22px;margin-bottom:6px;color:#221F1A;">Export JSON</h2>
-    <p style="font-size:12px;color:#5C5851;line-height:1.5;margin-bottom:12px;">
-      Click <strong>Copy to clipboard</strong>, then paste into TextEdit (or back into Claude chat) and save as <code style="background:#F4EFE3;padding:2px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:11px;">${fname}</code>.
-      Or click <strong>Try download</strong> if you're viewing this in a regular browser window.
-    </p>
-    <textarea id="json-text" readonly style="flex:1;min-height:200px;font-family:'JetBrains Mono',monospace;font-size:10px;border:1px solid #E2D9C2;border-radius:6px;padding:10px;resize:vertical;background:#FAF7EF;color:#221F1A;">${jsonText.replace(/</g, '&lt;')}</textarea>
-    <div style="display:flex;gap:8px;margin-top:12px;">
-      <button id="copy-btn" style="flex:2;background:#221F1A;color:white;border:0;border-radius:7px;padding:11px 14px;font:600 13px 'Manrope',sans-serif;cursor:pointer;">📋 Copy to clipboard</button>
-      <button id="download-btn" style="flex:1;background:white;color:#221F1A;border:1px solid #E2D9C2;border-radius:7px;padding:11px 14px;font:500 13px 'Manrope',sans-serif;cursor:pointer;">⬇ Try download</button>
-      <button id="close-btn" style="background:white;color:#5C5851;border:1px solid #E2D9C2;border-radius:7px;padding:11px 14px;font:500 13px 'Manrope',sans-serif;cursor:pointer;">Close</button>
-    </div>
-    <div id="copy-feedback" style="font-size:11px;color:#3DB54A;margin-top:8px;text-align:center;font-weight:600;opacity:0;transition:opacity 0.2s;">✓ Copied to clipboard</div>
-  `;
-  backdrop.appendChild(modal);
-  document.body.appendChild(backdrop);
-
-  const ta = modal.querySelector('#json-text');
-  // Auto-select content for easy manual copy
-  setTimeout(() => { ta.focus(); ta.select(); }, 50);
-
-  modal.querySelector('#copy-btn').addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(jsonText);
-      const fb = modal.querySelector('#copy-feedback');
-      fb.style.opacity = '1';
-      setTimeout(() => fb.style.opacity = '0', 2000);
-    } catch (e) {
-      // Fallback: use document.execCommand on the textarea
-      ta.select();
-      try {
-        document.execCommand('copy');
-        const fb = modal.querySelector('#copy-feedback');
-        fb.style.opacity = '1';
-        setTimeout(() => fb.style.opacity = '0', 2000);
-      } catch (e2) {
-        alert('Copy failed. Please select the text manually and press Cmd+C.');
-      }
-    }
-  });
-
-  modal.querySelector('#download-btn').addEventListener('click', () => {
-    const blob = new Blob([jsonText], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fname;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
-
-  const close = () => backdrop.remove();
-  modal.querySelector('#close-btn').addEventListener('click', close);
-  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sprinkler-plan-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('JSON downloaded');
 });
 
 document.getElementById('export-png').addEventListener('click', async () => {
