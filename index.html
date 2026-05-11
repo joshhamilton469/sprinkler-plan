@@ -381,6 +381,7 @@
       </section>
 
       <div class="actions">
+        <button class="btn primary" id="save-github" style="background:#221F1A;color:white;border-color:#221F1A;font-weight:600;">💾 Save to GitHub</button>
         <button class="btn" id="export-png">⬇ Export PNG snapshot</button>
         <button class="btn" id="export-json">⬇ Export JSON data</button>
         <button class="btn" id="import-json">⬆ Import JSON data</button>
@@ -468,12 +469,12 @@ function status(msg, err) {
   el.style.color = err ? 'var(--accent)' : '';
 }
 
-function toast(msg) {
+function toast(msg, ms = 1600) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._t);
-  t._t = setTimeout(() => t.classList.remove('show'), 1600);
+  t._t = setTimeout(() => t.classList.remove('show'), ms);
 }
 
 function pushHistory() {
@@ -883,14 +884,71 @@ document.getElementById('export-json').addEventListener('click', () => {
     heads: state.heads,
     annotations: state.annotations,
   };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `sprinkler-plan-${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  toast('JSON downloaded');
+  const jsonText = JSON.stringify(data, null, 2);
+  const fname = `sprinkler-plan-${new Date().toISOString().slice(0,10)}.json`;
+
+  // Build a modal — Safari blocks downloads from sandboxed iframes,
+  // so we offer clipboard copy + manual save instead.
+  const backdrop = document.createElement('div');
+  backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const modal = document.createElement('div');
+  modal.style.cssText = 'background:white;border-radius:12px;padding:20px;max-width:560px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,0.3);';
+  modal.innerHTML = `
+    <h2 style="font-family:'Instrument Serif',serif;font-size:22px;margin-bottom:6px;color:#221F1A;">Export JSON</h2>
+    <p style="font-size:12px;color:#5C5851;line-height:1.5;margin-bottom:12px;">
+      Click <strong>Copy to clipboard</strong>, then paste into TextEdit (or back into Claude chat) and save as <code style="background:#F4EFE3;padding:2px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:11px;">${fname}</code>.
+      Or click <strong>Try download</strong> if you're viewing this in a regular browser window.
+    </p>
+    <textarea id="json-text" readonly style="flex:1;min-height:200px;font-family:'JetBrains Mono',monospace;font-size:10px;border:1px solid #E2D9C2;border-radius:6px;padding:10px;resize:vertical;background:#FAF7EF;color:#221F1A;">${jsonText.replace(/</g, '&lt;')}</textarea>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button id="copy-btn" style="flex:2;background:#221F1A;color:white;border:0;border-radius:7px;padding:11px 14px;font:600 13px 'Manrope',sans-serif;cursor:pointer;">📋 Copy to clipboard</button>
+      <button id="download-btn" style="flex:1;background:white;color:#221F1A;border:1px solid #E2D9C2;border-radius:7px;padding:11px 14px;font:500 13px 'Manrope',sans-serif;cursor:pointer;">⬇ Try download</button>
+      <button id="close-btn" style="background:white;color:#5C5851;border:1px solid #E2D9C2;border-radius:7px;padding:11px 14px;font:500 13px 'Manrope',sans-serif;cursor:pointer;">Close</button>
+    </div>
+    <div id="copy-feedback" style="font-size:11px;color:#3DB54A;margin-top:8px;text-align:center;font-weight:600;opacity:0;transition:opacity 0.2s;">✓ Copied to clipboard</div>
+  `;
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  const ta = modal.querySelector('#json-text');
+  // Auto-select content for easy manual copy
+  setTimeout(() => { ta.focus(); ta.select(); }, 50);
+
+  modal.querySelector('#copy-btn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(jsonText);
+      const fb = modal.querySelector('#copy-feedback');
+      fb.style.opacity = '1';
+      setTimeout(() => fb.style.opacity = '0', 2000);
+    } catch (e) {
+      // Fallback: use document.execCommand on the textarea
+      ta.select();
+      try {
+        document.execCommand('copy');
+        const fb = modal.querySelector('#copy-feedback');
+        fb.style.opacity = '1';
+        setTimeout(() => fb.style.opacity = '0', 2000);
+      } catch (e2) {
+        alert('Copy failed. Please select the text manually and press Cmd+C.');
+      }
+    }
+  });
+
+  modal.querySelector('#download-btn').addEventListener('click', () => {
+    const blob = new Blob([jsonText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  const close = () => backdrop.remove();
+  modal.querySelector('#close-btn').addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
 });
 
 document.getElementById('export-png').addEventListener('click', async () => {
@@ -974,6 +1032,202 @@ document.getElementById('import-json-input').addEventListener('change', async (e
     toast('Import failed: ' + e.message);
   }
   evt.target.value = '';
+});
+
+// ============================================================================
+// GITHUB SAVE
+// ============================================================================
+const GITHUB_OWNER = 'joshhamilton469';
+const GITHUB_REPO = 'sprinkler-plan';
+const GITHUB_PATH = 'data/latest.json';
+
+// PAT is held in memory only (sessionStorage = cleared when tab closes)
+function getStoredToken() {
+  return sessionStorage.getItem('gh-pat') || '';
+}
+function storeToken(t, remember) {
+  if (remember) {
+    // Use localStorage for cross-session storage
+    localStorage.setItem('gh-pat', t);
+    sessionStorage.setItem('gh-pat', t);
+  } else {
+    sessionStorage.setItem('gh-pat', t);
+  }
+}
+function loadRememberedToken() {
+  const t = localStorage.getItem('gh-pat');
+  if (t) sessionStorage.setItem('gh-pat', t);
+  return t || '';
+}
+function clearStoredToken() {
+  sessionStorage.removeItem('gh-pat');
+  localStorage.removeItem('gh-pat');
+}
+loadRememberedToken();
+
+function promptForToken() {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    const modal = document.createElement('div');
+    modal.style.cssText = 'background:white;border-radius:12px;padding:22px;max-width:500px;width:100%;box-shadow:0 12px 48px rgba(0,0,0,0.3);';
+    modal.innerHTML = `
+      <h2 style="font-family:'Instrument Serif',serif;font-size:22px;margin-bottom:6px;color:#221F1A;">GitHub access token</h2>
+      <p style="font-size:12px;color:#5C5851;line-height:1.5;margin-bottom:14px;">
+        Paste your fine-grained PAT (starts with <code style="background:#F4EFE3;padding:1px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:11px;">github_pat_</code>). The token is stored in your browser only — never sent anywhere except GitHub.
+      </p>
+      <input id="pat-input" type="password" placeholder="github_pat_..." style="width:100%;border:1px solid #E2D9C2;border-radius:6px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:12px;margin-bottom:10px;" autocomplete="off">
+      <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:#5C5851;margin-bottom:14px;cursor:pointer;">
+        <input type="checkbox" id="remember-pat" checked>
+        Remember on this device (stored in browser local storage)
+      </label>
+      <div style="display:flex;gap:8px;">
+        <button id="pat-save" style="flex:2;background:#221F1A;color:white;border:0;border-radius:7px;padding:11px;font:600 13px 'Manrope',sans-serif;cursor:pointer;">Save token</button>
+        <button id="pat-cancel" style="flex:1;background:white;border:1px solid #E2D9C2;border-radius:7px;padding:11px;font:500 13px 'Manrope',sans-serif;cursor:pointer;">Cancel</button>
+      </div>
+      <details style="margin-top:14px;font-size:11px;color:#918B80;">
+        <summary style="cursor:pointer;color:#5C5851;">How do I create a token?</summary>
+        <div style="margin-top:8px;line-height:1.6;">
+          1. Go to <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" style="color:#B85A2A;">github.com/settings/personal-access-tokens/new</a><br>
+          2. Name: <code>sprinkler-plan-write</code> · Expiration: 1 year<br>
+          3. Repository access → <strong>Only select repositories</strong> → pick <code>sprinkler-plan</code><br>
+          4. Permissions → Repository → <strong>Contents: Read and write</strong><br>
+          5. Click "Generate token", copy it, paste here.
+        </div>
+      </details>
+    `;
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+    const inp = modal.querySelector('#pat-input');
+    setTimeout(() => inp.focus(), 50);
+    const close = (val) => { backdrop.remove(); resolve(val); };
+    modal.querySelector('#pat-save').addEventListener('click', () => {
+      const t = inp.value.trim();
+      if (!t) return;
+      storeToken(t, modal.querySelector('#remember-pat').checked);
+      close(t);
+    });
+    modal.querySelector('#pat-cancel').addEventListener('click', () => close(null));
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') modal.querySelector('#pat-save').click();
+      if (e.key === 'Escape') close(null);
+    });
+  });
+}
+
+async function saveToGithub() {
+  const btn = document.getElementById('save-github');
+  let token = getStoredToken();
+  if (!token) {
+    token = await promptForToken();
+    if (!token) return;
+  }
+
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = '⟳ Saving...';
+  btn.style.opacity = '0.7';
+
+  try {
+    // Step 1: get the current file SHA (needed for an update)
+    const apiBase = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_PATH}`;
+    const headers = {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+
+    let sha = null;
+    const getRes = await fetch(apiBase + '?ref=main', { headers });
+    if (getRes.ok) {
+      const info = await getRes.json();
+      sha = info.sha;
+    } else if (getRes.status === 401) {
+      throw new Error('Token rejected. Click "Re-enter token" below.');
+    } else if (getRes.status !== 404) {
+      throw new Error(`GitHub API error: ${getRes.status} ${getRes.statusText}`);
+    }
+
+    // Step 2: build the JSON payload
+    const data = {
+      property: '5589 rue Goddard',
+      exported: new Date().toISOString(),
+      zones: ZONES,
+      heads: state.heads,
+      annotations: state.annotations,
+    };
+    const jsonText = JSON.stringify(data, null, 2);
+
+    // Base64-encode (browser btoa needs binary-safe handling for UTF-8)
+    const encoded = btoa(unescape(encodeURIComponent(jsonText)));
+
+    // Step 3: PUT to commit
+    const ts = new Date().toLocaleString('en-CA', { dateStyle: 'short', timeStyle: 'short' });
+    const body = {
+      message: `Plan update: ${state.heads.length} heads · ${ts}`,
+      content: encoded,
+      branch: 'main',
+    };
+    if (sha) body.sha = sha;
+
+    const putRes = await fetch(apiBase, {
+      method: 'PUT',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!putRes.ok) {
+      const err = await putRes.json().catch(() => ({}));
+      throw new Error(err.message || `HTTP ${putRes.status}`);
+    }
+
+    const result = await putRes.json();
+    const commitUrl = result.commit && result.commit.html_url;
+    btn.textContent = '✓ Saved to GitHub';
+    btn.style.background = '#3DB54A';
+    btn.style.borderColor = '#3DB54A';
+    toast(`Pushed commit · live at joshhamilton469.github.io/sprinkler-plan in ~30s`);
+    if (commitUrl) {
+      console.log('Commit:', commitUrl);
+    }
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.background = '';
+      btn.style.borderColor = '';
+      btn.style.opacity = '';
+      btn.disabled = false;
+    }, 2500);
+  } catch (e) {
+    btn.textContent = '✗ Save failed';
+    btn.style.background = '#B85A2A';
+    btn.style.borderColor = '#B85A2A';
+    btn.style.opacity = '';
+    toast(`GitHub save failed: ${e.message}`, 4000);
+    console.error('Save error:', e);
+    // Offer to re-enter token on auth errors
+    if (e.message.includes('Token rejected') || e.message.includes('Bad credentials')) {
+      clearStoredToken();
+      if (confirm('Token invalid or expired. Enter a new one?')) {
+        setTimeout(saveToGithub, 100);
+      }
+    }
+    setTimeout(() => {
+      btn.textContent = originalText;
+      btn.style.background = '';
+      btn.style.borderColor = '';
+      btn.disabled = false;
+    }, 3000);
+  }
+}
+
+document.getElementById('save-github').addEventListener('click', saveToGithub);
+
+// Keyboard shortcut: Cmd/Ctrl + Shift + S
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    saveToGithub();
+  }
 });
 
 document.getElementById('reset-detected').addEventListener('click', () => {
