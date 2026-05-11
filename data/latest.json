@@ -1,6 +1,6 @@
 {
   "property": "5589 rue Goddard",
-  "exported": "2026-05-11T13:53:46.151Z",
+  "exported": "2026-05-11T13:55:21.978Z",
   "zones": [
     {
       "id": "Z1",
@@ -257,7 +257,7 @@
       "x": 990,
       "y": 297,
       "zone": "Z8",
-      "note": ""
+      "note": "3/4\" input, 50' throw radius"
     },
     {
       "id": 28,
