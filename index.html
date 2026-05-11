@@ -415,25 +415,65 @@ ZONES.forEach(z => state.zoneVis[z.id] = true);
 // ============================================================================
 // PERSISTENCE
 // ============================================================================
+const LOCAL_KEY = 'sprinkler-plan-data';
+const GITHUB_DATA_URL = 'https://raw.githubusercontent.com/joshhamilton469/sprinkler-plan/main/data/latest.json';
+
 async function loadState() {
+  // 1. Try to load from localStorage first (instant, offline-friendly)
+  let loadedLocal = false;
   try {
-    const r = await window.storage.get('sprinkler-edited');
-    if (r && r.value) {
-      const saved = JSON.parse(r.value);
-      if (saved.heads) {
-        state.heads = saved.heads;
-        nextId = Math.max(0, ...saved.heads.map(h => h.id)) + 1;
-      }
-      if (saved.annotations) state.annotations = saved.annotations;
-      if (saved.zoneVis) state.zoneVis = saved.zoneVis;
-      if (saved.activeZone) state.activeZone = saved.activeZone;
-      status('Loaded from last session');
-    } else {
-      initFromDetected();
+    const raw = localStorage.getItem(LOCAL_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      applyLoadedData(saved);
+      loadedLocal = true;
+      status('Loaded local copy · fetching latest...');
     }
   } catch (e) {
-    initFromDetected();
+    console.log('No local cache');
   }
+
+  // 2. Always try to fetch the latest from GitHub (source of truth)
+  try {
+    const res = await fetch(GITHUB_DATA_URL + '?_=' + Date.now(), { cache: 'no-store' });
+    if (res.ok) {
+      const remote = await res.json();
+      // Compare timestamps — only override if remote is newer or we had no local
+      const localRaw = localStorage.getItem(LOCAL_KEY);
+      const local = localRaw ? JSON.parse(localRaw) : null;
+      const remoteTime = new Date(remote.exported || 0).getTime();
+      const localTime  = local ? new Date(local.exported || 0).getTime() : 0;
+      if (!loadedLocal || remoteTime > localTime) {
+        applyLoadedData(remote);
+        // Cache locally for next reload
+        try { localStorage.setItem(LOCAL_KEY, JSON.stringify(remote)); } catch (e) {}
+        status('Loaded from GitHub · ' + new Date(remote.exported).toLocaleString());
+        // Re-render now that we have remote data
+        renderHeads(); renderAnnotations(); renderZones(); renderStats();
+      } else {
+        status('Local copy is up to date');
+      }
+      return;
+    }
+  } catch (e) {
+    console.log('GitHub fetch failed, using local copy:', e.message);
+  }
+
+  // 3. Fallback to detected defaults if neither local nor remote worked
+  if (!loadedLocal) {
+    initFromDetected();
+    status('Using detected defaults');
+  }
+}
+
+function applyLoadedData(saved) {
+  if (saved.heads && Array.isArray(saved.heads)) {
+    state.heads = saved.heads;
+    nextId = Math.max(0, ...saved.heads.map(h => h.id || 0)) + 1;
+  }
+  if (saved.annotations) state.annotations = saved.annotations;
+  if (saved.zoneVis) state.zoneVis = saved.zoneVis;
+  if (saved.activeZone) state.activeZone = saved.activeZone;
 }
 
 function initFromDetected() {
@@ -448,17 +488,21 @@ function initFromDetected() {
 let saveTimer;
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
+  saveTimer = setTimeout(() => {
     try {
-      await window.storage.set('sprinkler-edited', JSON.stringify({
+      const payload = {
+        property: '5589 rue Goddard',
+        exported: new Date().toISOString(),
+        zones: ZONES,
         heads: state.heads,
         annotations: state.annotations,
         zoneVis: state.zoneVis,
         activeZone: state.activeZone,
-      }));
-      status('Saved · ' + new Date().toLocaleTimeString());
+      };
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(payload));
+      status('Saved locally · ' + new Date().toLocaleTimeString());
     } catch (e) {
-      status('Save failed', true);
+      status('Local save failed', true);
     }
   }, 300);
 }
@@ -1194,6 +1238,8 @@ async function saveToGithub() {
           if (retryRes.ok) {
             const retryResult = await retryRes.json();
             const commitUrl = retryResult.commit && retryResult.commit.html_url;
+            // Cache the saved data locally so reload shows it immediately
+            try { localStorage.setItem(LOCAL_KEY, jsonText); } catch (e) {}
             btn.textContent = '✓ Saved to GitHub';
             btn.style.background = '#3DB54A';
             btn.style.borderColor = '#3DB54A';
@@ -1220,6 +1266,8 @@ async function saveToGithub() {
 
     const result = await putRes.json();
     const commitUrl = result.commit && result.commit.html_url;
+    // Cache the saved data locally so reload shows it immediately
+    try { localStorage.setItem(LOCAL_KEY, jsonText); } catch (e) {}
     btn.textContent = '✓ Saved to GitHub';
     btn.style.background = '#3DB54A';
     btn.style.borderColor = '#3DB54A';
